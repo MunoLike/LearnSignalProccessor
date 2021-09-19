@@ -4,160 +4,86 @@
 #else
 #pragma comment(lib, "opencv_world453.lib")
 #endif
-unsigned char get_density(cv::Mat&, int, int);
-void get_neighbors(cv::Mat&, cv::Point, unsigned char[]);
-cv::Point get_tracking_point(cv::Point, int);
-cv::Point find_start_point(cv::Mat&, cv::Mat&, cv::Point);
-void track_boundary(cv::Mat&, cv::Mat&, cv::Point, cv::Point, int);
-
-
+#define NUM_OF_CLUSTERS 16
+void k_means_method(cv::Mat&, cv::Mat&, long[]);
 int main(void)
 {
-	int x, y;
-
-
-
-	cv::Point p;
-	cv::Mat input_image = cv::imread("input.png", 0);
+	int i, x, y;
+	cv::Mat input_image = cv::imread("input.jpg", 0);
+	//cv::imwrite("gray.png", input_image);
+	cv::Mat clusters(input_image.rows, input_image.cols, CV_8UC1);
 	cv::Mat output_image(input_image.rows, input_image.cols, CV_8UC1);
-	for (y = 0; y < output_image.rows; y++) {
-		for (x = 0; x < output_image.cols; x++) {
-			output_image.ptr<unsigned char>(y)[x] = 0;
+	long means[NUM_OF_CLUSTERS];
+	for (i = 0; i < NUM_OF_CLUSTERS; i++) {
+
+
+		means[i] = 255 * (i + 1) / NUM_OF_CLUSTERS;
+	}
+	k_means_method(input_image, clusters, means);
+	for (y = 0; y < input_image.rows; y++) {
+		for (x = 0; x < input_image.cols; x++) {
+			unsigned char c = clusters.ptr<unsigned char>(y)[x];
+			output_image.ptr<unsigned char>(y)[x] = means[c];
 		}
 	}
-	x = 0; y = 0;
-	p.x = x; p.y = y;
-	while (y < input_image.rows) {
-		p = find_start_point(input_image, output_image, p);
-		if (p.x == -1 && p.y == -1) {
-			x = 0; y++;
-			p.x = x; p.y = y;
-			continue;
-		}
-		output_image.ptr<unsigned char>(p.y)[p.x] = 255;
-		track_boundary(input_image, output_image, p, p, 5);
-	}
-	cv::namedWindow("Input Image");
-	cv::namedWindow("Output Image");
 	cv::imshow("Input Image", input_image);
 	cv::imshow("Output Image", output_image);
-
-
-
 	cv::waitKey();
 	cv::imwrite("output.png", output_image);
+
 	return 0;
 }
-
-unsigned char get_density(cv::Mat& image, int x, int y)
+void k_means_method(cv::Mat& image, cv::Mat& clusters, long means[])
 {
-	if ((x < 0) || (x > image.cols - 1) || (y < 0) || (y > image.rows -
-		1)) {
-		return 0;
-	}
-	else {
-		return (image.ptr<unsigned char>(y)[x] == 255) ? 1 : 0;
-	}
-}
-
-void get_neighbors(cv::Mat& image, cv::Point p, unsigned char neighbors[])
-{
-	neighbors[0] = 0;
-	neighbors[1] = get_density(image, p.x + 1, p.y);
-	neighbors[2] = get_density(image, p.x + 1, p.y - 1);
-	neighbors[3] = get_density(image, p.x, p.y - 1);
-	neighbors[4] = get_density(image, p.x - 1, p.y - 1);
-	neighbors[5] = get_density(image, p.x - 1, p.y);
-	neighbors[6] = get_density(image, p.x - 1, p.y + 1);
-	neighbors[7] = get_density(image, p.x, p.y + 1);
-	neighbors[8] = get_density(image, p.x + 1, p.y + 1);
-}
+	int i, x, y;
+	int min_diff, diff;
+	bool changed = false;
+	int nums[NUM_OF_CLUSTERS];
 
 
 
-cv::Point get_tracking_point(cv::Point p, int d)
-{
-	switch (d) {
-	case 1:
-		return cv::Point(++p.x, p.y);
-	case 2:
-		return cv::Point(++p.x, --p.y);
-	case 3:
-		return cv::Point(p.x, --p.y);
-	case 4:
-		return cv::Point(--p.x, --p.y);
-	case 5:
-		return cv::Point(--p.x, p.y);
-	case 6:
-		return cv::Point(--p.x, ++p.y);
-	case 7:
-		return cv::Point(p.x, ++p.y);
-	case 8:
-		return cv::Point(++p.x, ++p.y);
-	default:
-		return cv::Point(-1, -1);
-	}
-}
-cv::Point find_start_point(cv::Mat& input_image, cv::Mat& output_image, cv
-	::Point p)
-{
-	int x, y;
-	bool inside = false;
-
-
-
-	y = p.y;
-	for (x = p.x; x < input_image.cols; x++) {
-		if (input_image.ptr<unsigned char>(y)[x] == 0) {
-			inside = false;
-			continue;
-		}
-		if (output_image.ptr<unsigned char>(y)[x] == 255) {
-			inside = true;
-			continue;
-		}
-		if (inside == false) {
-			return cv::Point(x, y);
-		}
-		else {
-		}
-	}
-	return cv::Point(-1, -1);
-}
-
-void track_boundary(cv::Mat& input_image, cv::Mat& output_image, cv::Point
-	p0, cv::Point p, int d)
-{
-	int i, j;
-
-
-
-	unsigned char neighbors[9];
-	cv::Point new_p;
-	int new_d = 0;
-	get_neighbors(input_image, p, neighbors);
-	i = d;
-	do {
-		j = (i % 8) + 1;
-		if (neighbors[i] == 0 && neighbors[j] == 1) {
-			new_p = get_tracking_point(p, j);
-			if (output_image.ptr<unsigned char>(new_p.y)[new_p.x] == 0) {
-				new_d = j;
-				break;
+	int count = 0;
+	for (y = 0; y < image.rows; y++) {
+		for (x = 0; x < image.cols; x++) {
+			min_diff = image.ptr<unsigned char>(y)[x] -
+				means[clusters.ptr<unsigned char>(y)[x]];
+			min_diff *= min_diff;
+			for (i = 0; i < NUM_OF_CLUSTERS; i++) {
+				diff = image.ptr<unsigned char>(y)[x] - means[i];
+				diff *= diff;
+				if (diff < min_diff) {
+					min_diff = diff;
+					if (clusters.ptr<unsigned char>(y)[x] != i) {
+						clusters.ptr<unsigned char>(y)[x] = i;
+						changed = true;
+						count++;
+					}
+				}
 			}
 		}
-		i = j;
-	} while (i != d);
-	if (new_d == 0) {
+	}
+	if (changed == false) {
 		return;
 	}
-	new_p = get_tracking_point(p, new_d);
-	if (new_p.x == p0.x && new_p.y == p0.y) {
-		return;
+	for (i = 0; i < NUM_OF_CLUSTERS; i++) {
+		means[i] = 0;
+		nums[i] = 0;
 	}
-	output_image.ptr<unsigned char>(new_p.y)[new_p.x] = 255;
+	for (y = 0; y < image.rows; y++) {
+		for (x = 0; x < image.cols; x++) {
+			means[clusters.ptr<unsigned char>(y)[x]] +=
+				image.ptr<unsigned char>(y)[x];
+			nums[clusters.ptr<unsigned char>(y)[x]]++;
+		}
+	}
 
-
-	new_d = (d + 3) % 8 + 1;
-	track_boundary(input_image, output_image, p0, new_p, new_d);
+	printf("%d pixels changed ... [ ", count);
+	for (i = 0; i < NUM_OF_CLUSTERS; i++) {
+		if (nums[i] != 0) {
+			means[i] /= nums[i];
+		}
+		printf("%ld ", means[i]);
+	}
+	printf("]\n");
+	k_means_method(image, clusters, means);
 }
